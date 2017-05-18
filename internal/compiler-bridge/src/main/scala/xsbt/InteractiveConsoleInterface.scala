@@ -28,18 +28,36 @@ class InteractiveConsoleInterface(
     log: Logger
 ) extends xsbti.InteractiveConsoleInterface {
 
-  lazy val interpreterSettings: Settings = InteractiveMakeSettings.sync(args.toList, onError)
+  private def mkSettings(options: List[String]): Settings = {
+    val command = new GenericRunnerCommand(options, str => log error Message(str))
+    val settings =
+      if (command.ok) command.settings
+      else throw new Exception(command.usageMsg) // TODO: Provide better exception
 
-  val useJavaCp = "-usejavacp" // we need rt.jar from JDK, so java classpath is required
+    settings.Yreplsync.value = true
+    settings
+  }
 
-  val compilerSettings: Settings =
-    InteractiveMakeSettings.sync(args :+ useJavaCp, bootClasspathString, classpathString, onError)
+  private lazy val interpreterSettings: Settings = mkSettings(args.toList)
 
-  val outWriter: StringWriter = new StringWriter
-  val poutWriter: PrintWriter = new PrintWriter(outWriter)
+  private val compilerSettings: Settings = {
+    // we need rt.jar from JDK, so java classpath is required
+    val useJavaCp = "-usejavacp"
 
-  val interpreter: IMain = new IMain(compilerSettings, new PrintWriter(outWriter)) {
-    def lastReq: Request = prevRequestList.last
+    val compilerSettings = mkSettings((args :+ useJavaCp).toList)
+    if (!bootClasspathString.isEmpty)
+      compilerSettings.bootclasspath.value = bootClasspathString
+    compilerSettings.classpath.value = classpathString
+    compilerSettings
+  }
+
+  private val outWriter: StringWriter = new StringWriter
+  private val poutWriter: PrintWriter = new PrintWriter(outWriter)
+
+  private val interpreter: IMain = new IMain(compilerSettings, new PrintWriter(outWriter))
+  private def clearBuffer(): Unit = {
+    // errorWriter.getBuffer.setLength(0)
+    outWriter.getBuffer.setLength(0)
   }
 
   def interpret(line: String, synthetic: Boolean): InteractiveConsoleResponse = {
@@ -48,43 +66,8 @@ class InteractiveConsoleInterface(
     InteractiveConsoleResponse(r, outWriter.toString)
   }
 
-  def clearBuffer(): Unit = {
-    // errorWriter.getBuffer.setLength(0)
-    outWriter.getBuffer.setLength(0)
-  }
-
   def reset(): Unit = {
     clearBuffer()
     interpreter.reset()
-  }
-
-  private def onError(str: String) = log error Message(str)
-}
-
-object InteractiveMakeSettings {
-  def apply(args: List[String], onError: String => Unit): Settings = {
-    val command = new GenericRunnerCommand(args, onError)
-    if (command.ok) command.settings
-    // TODO: Provide better exception
-    else throw new Exception(command.usageMsg)
-  }
-
-  def sync(
-      args: Array[String],
-      bootClasspathString: String,
-      classpathString: String,
-      onError: String => Unit
-  ): Settings = {
-    val compilerSettings = sync(args.toList, onError)
-    if (!bootClasspathString.isEmpty)
-      compilerSettings.bootclasspath.value = bootClasspathString
-    compilerSettings.classpath.value = classpathString
-    compilerSettings
-  }
-
-  def sync(options: List[String], onError: String => Unit): Settings = {
-    val settings = apply(options, onError)
-    settings.Yreplsync.value = true
-    settings
   }
 }
